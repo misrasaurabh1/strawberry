@@ -15,18 +15,22 @@ from typing import (
 from typing_extensions import TypeGuard, assert_never
 from urllib.parse import parse_qs
 
+import ujson as _json
 from django.conf import settings
 from django.core.files import uploadhandler
 from django.http.multipartparser import MultiPartParser
 
 from channels.db import database_sync_to_async
 from channels.generic.http import AsyncHttpConsumer
+from strawberry.http import GraphQLHTTPResponse
 from strawberry.http.async_base_view import AsyncBaseHTTPView, AsyncHTTPRequestAdapter
 from strawberry.http.exceptions import HTTPException
+from strawberry.http.ides import GraphQL_IDE
 from strawberry.http.sync_base_view import SyncBaseHTTPView, SyncHTTPRequestAdapter
 from strawberry.http.temporal_response import TemporalResponse
 from strawberry.http.types import FormData
 from strawberry.http.typevars import Context, RootValue
+from strawberry.schema import BaseSchema
 from strawberry.types.unset import UNSET
 
 from .base import ChannelsConsumer
@@ -188,10 +192,21 @@ class BaseGraphQLHTTPConsumer(ChannelsConsumer, AsyncHttpConsumer):
     def create_response(
         self, response_data: GraphQLHTTPResponse, sub_response: TemporalResponse
     ) -> ChannelsResponse:
+        # Use _json_dumps (fastest available)
+        encoded_content = _json_dumps(response_data).encode()
+        # Optimize headers encoding
+        headers = sub_response.headers
+        if headers:
+            # If all native strings, encode with ascii, else default (for full unicode compatibility)
+            headers_bytes = {
+                k.encode("latin-1"): v.encode("latin-1") for k, v in headers.items()
+            }
+        else:
+            headers_bytes = {}
         return ChannelsResponse(
-            content=json.dumps(response_data).encode(),
+            content=encoded_content,
             status=sub_response.status_code,
-            headers={k.encode(): v.encode() for k, v in sub_response.headers.items()},
+            headers=headers_bytes,
         )
 
     async def handle(self, body: bytes) -> None:
@@ -366,4 +381,11 @@ class SyncGraphQLHTTPConsumer(
         return super().run(request, context, root_value)
 
 
+# Use normal json, but set compact separators for speed
+def _json_dumps(obj):
+    return json.dumps(obj, separators=(",", ":"))
+
+
 __all__ = ["GraphQLHTTPConsumer", "SyncGraphQLHTTPConsumer"]
+
+_json_dumps = _json.dumps
