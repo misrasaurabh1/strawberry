@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Union
 
+from graphql import GraphQLResolveInfo
+
 if TYPE_CHECKING:
     from graphql import GraphQLResolveInfo
 
@@ -29,12 +31,13 @@ def is_introspection_field(info: GraphQLResolveInfo) -> bool:
 def get_path_from_info(info: GraphQLResolveInfo) -> list[str]:
     path = info.path
     elements = []
-
+    # Traverse and build the reversed path
     while path:
         elements.append(path.key)
         path = path.prev
-
-    return elements[::-1]
+    # Reverse in-place for better performance
+    elements.reverse()
+    return elements
 
 
 __all__ = ["get_path_from_info", "is_introspection_field", "is_introspection_key"]
