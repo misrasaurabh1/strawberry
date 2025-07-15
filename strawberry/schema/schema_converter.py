@@ -68,7 +68,7 @@ from strawberry.types.base import (
 )
 from strawberry.types.cast import get_strawberry_type_cast
 from strawberry.types.enum import EnumDefinition
-from strawberry.types.field import UNRESOLVED
+from strawberry.types.field import UNRESOLVED, StrawberryField
 from strawberry.types.lazy_type import LazyType
 from strawberry.types.private import is_private
 from strawberry.types.scalar import ScalarWrapper, scalar
@@ -131,8 +131,10 @@ def _get_thunk_mapping(
     Raises:
         TypeError: If the type of a field in ``fields`` is `UNRESOLVED`
     """
-    thunk_mapping: dict[str, FieldType] = {}
+    # Cache for is_private results per unique field_type
+    _private_type_cache = {}
 
+    thunk_mapping: dict[str, FieldType] = {}
     fields = get_fields(type_definition)
 
     for field in fields:
@@ -141,7 +143,13 @@ def _get_thunk_mapping(
         if field_type is UNRESOLVED:
             raise UnresolvedFieldTypeError(type_definition, field)
 
-        if not is_private(field_type):
+        # Use the cache if available, else call and store result
+        is_private_result = _private_type_cache.get(field_type)
+        if is_private_result is None:
+            is_private_result = is_private(field_type)
+            _private_type_cache[field_type] = is_private_result
+
+        if not is_private_result:
             thunk_mapping[name_converter(field)] = field_converter(
                 field,
                 type_definition=type_definition,
