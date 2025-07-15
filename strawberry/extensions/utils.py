@@ -37,4 +37,30 @@ def get_path_from_info(info: GraphQLResolveInfo) -> list[str]:
     return elements[::-1]
 
 
+def _determine_depth_selection_set(
+    selection_set,
+    fragments,
+    depth_so_far,
+    max_depth,
+    context,
+    operation_name,
+    should_ignore,
+):
+    # Inlined helper for speed: use local vars, avoid generator overhead for very small lists
+    selections = selection_set.selections
+    # Since we're calling max on a list, using listcomp directly is as fast as generator for short lists
+    return max(
+        determine_depth(
+            node=selection,
+            fragments=fragments,
+            depth_so_far=depth_so_far,
+            max_depth=max_depth,
+            context=context,
+            operation_name=operation_name,
+            should_ignore=should_ignore,
+        )
+        for selection in selections
+    )
+
+
 __all__ = ["get_path_from_info", "is_introspection_field", "is_introspection_key"]
