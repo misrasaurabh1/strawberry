@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable
 
+from graphql import GraphQLResolveInfo
+
 from strawberry.extensions.utils import is_introspection_field
 from strawberry.resolvers import is_default_resolver
 

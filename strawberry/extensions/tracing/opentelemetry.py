@@ -10,11 +10,14 @@ from typing import (
     Union,
 )
 
+from graphql import GraphQLResolveInfo
 from opentelemetry import trace
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import Span, SpanKind
 
 from strawberry.extensions import LifecycleStep, SchemaExtension
-from strawberry.extensions.utils import get_path_from_info
+from strawberry.extensions.utils import get_path_from_info, is_introspection_field
+from strawberry.resolvers import is_default_resolver
+from strawberry.types.execution import ExecutionContext
 
 from .utils import should_skip_tracing
 
@@ -41,7 +44,9 @@ class OpenTelemetryExtension(SchemaExtension):
         self,
         *,
         execution_context: Optional[ExecutionContext] = None,
-        arg_filter: Optional[ArgFilter] = None,
+        arg_filter: Optional[
+            Callable[[dict[str, Any], GraphQLResolveInfo], dict[str, Any]]
+        ] = None,
         tracer_provider: Optional[trace.TracerProvider] = None,
     ) -> None:
         self._arg_filter = arg_filter
@@ -138,18 +143,24 @@ class OpenTelemetryExtension(SchemaExtension):
         return ", ".join(map(str, map(self.convert_to_allowed_types, value)))
 
     def add_tags(self, span: Span, info: GraphQLResolveInfo, kwargs: Any) -> None:
-        graphql_path = ".".join(map(str, get_path_from_info(info)))
-
+        # Fast path generation for small/short GraphQL path
+        path_elems = get_path_from_info(info)
+        if path_elems:
+            graphql_path = ".".join(str(x) for x in path_elems)
+        else:
+            graphql_path = ""
         span.set_attribute("component", "graphql")
         span.set_attribute("graphql.parentType", info.parent_type.name)
         span.set_attribute("graphql.path", graphql_path)
 
         if kwargs:
             filtered_kwargs = self.filter_resolver_args(kwargs, info)
-
+            # Put convert_to_allowed_types local for perf
+            convert = self.convert_to_allowed_types
+            set_attr = span.set_attribute
+            prefix = "graphql.param."
             for kwarg, value in filtered_kwargs.items():
-                converted_value = self.convert_to_allowed_types(value)
-                span.set_attribute(f"graphql.param.{kwarg}", converted_value)
+                set_attr(f"{prefix}{kwarg}", convert(value))
 
     async def resolve(
         self,
@@ -191,11 +202,30 @@ class OpenTelemetryExtensionSync(OpenTelemetryExtension):
         *args: str,
         **kwargs: Any,
     ) -> Any:
-        if should_skip_tracing(_next, info):
+        parent_type = info.parent_type
+        field_name = info.field_name
+
+        # Move logic here to avoid repeated traversal
+        # Fast check for legit field
+        # Note: For conformance, if user mutates `fields`, we can't cache.
+        fields = parent_type.fields
+        if field_name not in fields:
+            return _next(root, info, *args, **kwargs)
+        resolver = fields[field_name].resolve
+
+        # Avoid hot call to is_introspection_field by direct logic:
+        # inlined from strawberry.extensions.utils, but still only via imported function
+        # Use local to avoid repeated attr lookups
+        # Note: is_introspection_field is expensive! Check resolver fast-path first.
+        if (
+            resolver is None
+            or is_default_resolver(resolver)
+            or is_introspection_field(info)
+        ):
             return _next(root, info, *args, **kwargs)
 
         with self._tracer.start_as_current_span(
-            f"GraphQL Resolving: {info.field_name}",
+            f"GraphQL Resolving: {field_name}",
             context=trace.set_span_in_context(
                 self._span_holder[LifecycleStep.OPERATION]
             ),
