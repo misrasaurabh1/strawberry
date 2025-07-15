@@ -283,6 +283,8 @@ class PydanticCompat:
             self._compat = PydanticV2Compat()
         else:
             self._compat = PydanticV1Compat()  # type: ignore[assignment]
+        # Directly assign the getattr for a slight speedup
+        self.__getattr__ = self._compat.__getattribute__
 
     @classmethod
     def from_model(cls, model: type[BaseModel]) -> "PydanticCompat":
