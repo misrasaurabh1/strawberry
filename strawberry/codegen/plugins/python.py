@@ -3,10 +3,12 @@ from __future__ import annotations
 import textwrap
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Optional
 
 from strawberry.codegen import CodegenFile, QueryCodegenPlugin
 from strawberry.codegen.types import (
+    GraphQLArgumentValue,
     GraphQLEnum,
     GraphQLEnumValue,
     GraphQLList,
@@ -121,32 +123,31 @@ class PythonPlugin(QueryCodegenPlugin):
         return f"{name}: {self._get_type_name(field.type)}{default_value}"
 
     def _print_argument_value(self, argval: GraphQLArgumentValue) -> str:
+        # Cache for attribute lookups and types
+        argval_type = type(argval)
         if hasattr(argval, "values"):
-            if isinstance(argval.values, list):
-                return (
-                    "["
-                    + ", ".join(self._print_argument_value(v) for v in argval.values)
-                    + "]"
-                )
-            if isinstance(argval.values, dict):
-                return (
-                    "{"
-                    + ", ".join(
-                        f"{k!r}: {self._print_argument_value(v)}"
-                        for k, v in argval.values.items()
-                    )
-                    + "}"
-                )
+            values = argval.values
+            if isinstance(values, list):
+                # Precompute representation for each value, use f-string and single join
+                vals = [self._print_argument_value(v) for v in values]
+                return f"[{', '.join(vals)}]"
+            if isinstance(values, dict):
+                # Build dict representation, f-string for each entry
+                items = [
+                    f"{k!r}: {self._print_argument_value(v)}" for k, v in values.items()
+                ]
+                return f"{{{', '.join(items)}}}"
             raise TypeError(f"Unrecognized values type: {argval}")
-        if isinstance(argval, GraphQLEnumValue):
-            # This is an enum.  It needs the namespace alongside the name.
+        if argval_type is GraphQLEnumValue:
+            # This is an enum. It needs the namespace alongside the name.
             if argval.enum_type is None:
                 raise ValueError(
-                    "GraphQLEnumValue must have a type for python code gen. {argval}"
+                    f"GraphQLEnumValue must have a type for python code gen. {argval}"
                 )
             return f"{argval.enum_type}.{argval.name}"
-        if isinstance(argval, GraphQLNullValue):
+        if argval_type is GraphQLNullValue:
             return "None"
+        # Only check for value after others are exhausted
         if not hasattr(argval, "value"):
             raise TypeError(f"Unrecognized values type: {argval}")
         return repr(argval.value)
