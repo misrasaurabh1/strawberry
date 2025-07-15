@@ -6,10 +6,15 @@ from inspect import isawaitable
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import ddtrace
+from ddtrace import tracer
+from graphql import GraphQLResolveInfo
 from packaging import version
 
 from strawberry.extensions import LifecycleStep, SchemaExtension
 from strawberry.extensions.tracing.utils import should_skip_tracing
+from strawberry.extensions.utils import is_introspection_field
+from strawberry.resolvers import is_default_resolver
+from strawberry.types.execution import ExecutionContext
 
 parsed_ddtrace_version = version.parse(ddtrace.__version__)
 if parsed_ddtrace_version >= version.parse("3.0.0"):
@@ -32,7 +37,8 @@ class DatadogTracingExtension(SchemaExtension):
         *,
         execution_context: Optional[ExecutionContext] = None,
     ) -> None:
-        if execution_context:
+        # Only set if provided, otherwise don't add attribute
+        if execution_context is not None:
             self.execution_context = execution_context
 
     @cached_property
@@ -68,6 +74,7 @@ class DatadogTracingExtension(SchemaExtension):
                 return span
         ```
         """
+        # Tracer always returns a Span, span_type overridable via kwargs
         return tracer.trace(
             name,
             span_type="graphql",
@@ -170,19 +177,43 @@ class DatadogTracingExtensionSync(DatadogTracingExtension):
         *args: str,
         **kwargs: Any,
     ) -> Any:
-        if should_skip_tracing(_next, info):
+        # Inline should_skip_tracing for minimal attribute lookups and branching
+        parent_type = info.parent_type
+        fields = parent_type.fields
+        field_name = info.field_name
+
+        resolver = None
+        if field_name in fields:
+            resolver = fields[field_name].resolve
+
+        # Short-circuit for fast skip tracing detection
+        # Note: The original called is_introspection_field and is_default_resolver ONLY if the resolver exists.
+        skip = (
+            field_name not in fields
+            or is_introspection_field(info)
+            or resolver is None
+            or is_default_resolver(resolver)
+        )
+        if skip:
             return _next(root, info, *args, **kwargs)
 
-        field_path = f"{info.parent_type}.{info.field_name}"
+        # Preparing data for tag efficiently up front
+        parent_type_name = parent_type.name
+        # f"{info.parent_type}.{info.field_name}" is pythonic, but .__repr__ might be costly: get name directly.
+        field_path = f"{parent_type_name}.{field_name}"
+        path_list = info.path.as_list()  # Only call as_list once
+        graphql_path = ".".join(map(str, path_list))
 
+        # Create and mark span, set relevant tags in minimal dictionary/setter calls
         with self.create_span(
             lifecycle_step=LifecycleStep.RESOLVE,
             name=f"Resolving: {field_path}",
         ) as span:
-            span.set_tag("graphql.field_name", info.field_name)
-            span.set_tag("graphql.parent_type", info.parent_type.name)
+            # Set all tags immediately; string formatting is done above
+            span.set_tag("graphql.field_name", field_name)
+            span.set_tag("graphql.parent_type", parent_type_name)
             span.set_tag("graphql.field_path", field_path)
-            span.set_tag("graphql.path", ".".join(map(str, info.path.as_list())))
+            span.set_tag("graphql.path", graphql_path)
 
             return _next(root, info, *args, **kwargs)
 
