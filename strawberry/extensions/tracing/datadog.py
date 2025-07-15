@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from functools import cached_property
+from functools import cached_property, lru_cache
 from inspect import isawaitable
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -10,6 +10,7 @@ from packaging import version
 
 from strawberry.extensions import LifecycleStep, SchemaExtension
 from strawberry.extensions.tracing.utils import should_skip_tracing
+from strawberry.types.execution import ExecutionContext
 
 parsed_ddtrace_version = version.parse(ddtrace.__version__)
 if parsed_ddtrace_version >= version.parse("3.0.0"):
@@ -32,7 +33,7 @@ class DatadogTracingExtension(SchemaExtension):
         *,
         execution_context: Optional[ExecutionContext] = None,
     ) -> None:
-        if execution_context:
+        if execution_context is not None:
             self.execution_context = execution_context
 
     @cached_property
@@ -75,7 +76,7 @@ class DatadogTracingExtension(SchemaExtension):
         )
 
     def hash_query(self, query: str) -> str:
-        return hashlib.md5(query.encode("utf-8")).hexdigest()  # noqa: S324
+        return _hash_query_cached(query)
 
     def on_operation(self) -> Iterator[None]:
         self._operation_name = self.execution_context.operation_name
@@ -185,6 +186,13 @@ class DatadogTracingExtensionSync(DatadogTracingExtension):
             span.set_tag("graphql.path", ".".join(map(str, info.path.as_list())))
 
             return _next(root, info, *args, **kwargs)
+
+
+# lru_cache avoids recomputation for repeated query strings
+@lru_cache(maxsize=4096)
+def _hash_query_cached(query: str) -> str:
+    query_bytes = query.encode("utf-8")
+    return hashlib.md5(query_bytes).hexdigest()  # noqa: S324
 
 
 __all__ = ["DatadogTracingExtension", "DatadogTracingExtensionSync"]
