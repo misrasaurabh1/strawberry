@@ -3,12 +3,14 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING, Any, Optional
 
+from strawberry.extensions import SchemaExtension
 from strawberry.extensions.context import (
     ExecutingContextManager,
     OperationContextManager,
     ParsingContextManager,
     ValidationContextManager,
 )
+from strawberry.types import ExecutionContext
 from strawberry.utils.await_maybe import await_maybe
 
 if TYPE_CHECKING:
@@ -26,7 +28,8 @@ class SchemaExtensionsRunner:
         extensions: Optional[list[SchemaExtension]] = None,
     ) -> None:
         self.execution_context = execution_context
-        self.extensions = extensions or []
+        # Avoid creating a new empty list each time
+        self.extensions = extensions if extensions is not None else []
 
     def operation(self) -> OperationContextManager:
         return OperationContextManager(self.extensions)
