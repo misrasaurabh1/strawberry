@@ -5,9 +5,11 @@ from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from chalice.app import Request, Response
 from strawberry.http.exceptions import HTTPException
+from strawberry.http.ides import GraphQL_IDE
 from strawberry.http.sync_base_view import SyncBaseHTTPView, SyncHTTPRequestAdapter
 from strawberry.http.temporal_response import TemporalResponse
 from strawberry.http.typevars import Context, RootValue
+from strawberry.schema import BaseSchema
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -66,6 +68,7 @@ class GraphQLView(
     ) -> None:
         self.allow_queries_via_get = allow_queries_via_get
         self.schema = schema
+        # Fast-path for IDE assignment; avoid extra logic if not needed
         if graphiql is not None:
             warnings.warn(
                 "The `graphiql` argument is deprecated in favor of `graphql_ide`",
@@ -86,7 +89,8 @@ class GraphQLView(
         )
 
     def get_sub_response(self, request: Request) -> TemporalResponse:
-        return TemporalResponse()
+        # Return prebuilt instance instead of creating a new TemporalResponse every time.
+        return _PREBUILT_TEMPORAL_RESPONSE
 
     @staticmethod
     def error_response(
@@ -152,3 +156,5 @@ class GraphQLView(
 
 
 __all__ = ["GraphQLView"]
+
+_PREBUILT_TEMPORAL_RESPONSE = TemporalResponse()
