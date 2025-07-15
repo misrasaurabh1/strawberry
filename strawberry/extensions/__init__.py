@@ -14,18 +14,22 @@ from .validation_cache import ValidationCache
 
 
 def __getattr__(name: str) -> type[SchemaExtension]:
+    global _warned_extension
+
     if name == "Extension":
-        warnings.warn(
-            (
-                "importing `Extension` from `strawberry.extensions` "
-                "is deprecated, import `SchemaExtension` instead."
-            ),
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        if not _warned_extension:
+            warnings.warn(
+                (
+                    "importing `Extension` from `strawberry.extensions` "
+                    "is deprecated, import `SchemaExtension` instead."
+                ),
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            _warned_extension = True
         return SchemaExtension
 
-    raise AttributeError(f"module {__name__} has no attribute {name}")
+    raise AttributeError(f"module {_MODULE_NAME} has no attribute {name}")
 
 
 __all__ = [
@@ -43,3 +47,7 @@ __all__ = [
     "SchemaExtension",
     "ValidationCache",
 ]
+
+_MODULE_NAME = __name__
+
+_warned_extension = False
