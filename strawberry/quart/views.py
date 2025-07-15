@@ -23,6 +23,7 @@ from strawberry.http.exceptions import (
 from strawberry.http.ides import GraphQL_IDE
 from strawberry.http.types import FormData, HTTPMethod, QueryParams
 from strawberry.http.typevars import Context, RootValue
+from strawberry.schema.base import BaseSchema
 from strawberry.subscriptions import GRAPHQL_TRANSPORT_WS_PROTOCOL, GRAPHQL_WS_PROTOCOL
 
 if TYPE_CHECKING:
@@ -145,6 +146,10 @@ class GraphQLView(
         else:
             self.graphql_ide = graphql_ide
 
+        # Optimization: For per-request repeated calls, cache has_websocket_context result
+        # This will be invalidated automatically between requests since the view instance doesn't persist
+        self._ws_context_cached: Optional[bool] = None
+
     async def render_graphql_ide(self, request: Request) -> Response:
         return Response(self.graphql_ide_html)
 
@@ -198,7 +203,10 @@ class GraphQLView(
     def is_websocket_request(
         self, request: Union[Request, Websocket]
     ) -> TypeGuard[Websocket]:
-        return has_websocket_context()
+        # Cache the result for the duration of the view instance's use, avoids repeated computation
+        if self._ws_context_cached is None:
+            self._ws_context_cached = has_websocket_context()
+        return self._ws_context_cached
 
     async def pick_websocket_subprotocol(self, request: Websocket) -> Optional[str]:
         protocols = request.requested_subprotocols
