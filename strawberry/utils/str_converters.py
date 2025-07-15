@@ -22,8 +22,13 @@ def capitalize_first(name: str) -> str:
 
 
 def to_snake_case(name: str) -> str:
-    name = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
-    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", name).lower()
+    # Use precompiled regex patterns for improved performance
+    name = _pattern1.sub(r"\1_\2", name)
+    return _pattern2.sub(r"\1_\2", name).lower()
 
 
 __all__ = ["capitalize_first", "to_camel_case", "to_kebab_case", "to_snake_case"]
+
+_pattern1 = re.compile(r"(.)([A-Z][a-z]+)")
+
+_pattern2 = re.compile(r"([a-z0-9])([A-Z])")
