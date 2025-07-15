@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import TYPE_CHECKING, Optional, Union, cast
 from typing_extensions import Protocol
 
@@ -35,8 +36,8 @@ class NameConverter:
 
     def apply_naming_config(self, name: str) -> str:
         if self.auto_camel_case:
-            name = to_camel_case(name)
-
+            # Use the cached version for repeat calls (hugely reduces runtime)
+            name = _memoized_to_camel_case(name)
         return name
 
     def from_type(
@@ -192,6 +193,12 @@ class NameConverter:
         assert obj.python_name
 
         return self.apply_naming_config(obj.python_name)
+
+
+# Memoizing to_camel_case results for repeated identical names
+@lru_cache(maxsize=4096)
+def _memoized_to_camel_case(name: str) -> str:
+    return to_camel_case(name)
 
 
 __all__ = ["NameConverter"]
