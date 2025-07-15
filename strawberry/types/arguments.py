@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import warnings
+from collections.abc import Iterable, Mapping
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -323,12 +324,14 @@ def argument(
             return value
     ```
     """
+    # Fastest argument passing by directly using local variables,
+    # no temporaries or extra packing/unpacking.
     return StrawberryArgumentAnnotation(
-        description=description,
-        name=name,
-        deprecation_reason=deprecation_reason,
-        directives=directives,
-        metadata=metadata,
+        description,
+        name,
+        deprecation_reason,
+        directives,
+        metadata,
     )
 
 
