@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from copy import deepcopy
 from inspect import isawaitable
 from typing import (
@@ -15,6 +16,7 @@ from opentelemetry.trace import SpanKind
 
 from strawberry.extensions import LifecycleStep, SchemaExtension
 from strawberry.extensions.utils import get_path_from_info
+from strawberry.types.execution import ExecutionContext
 
 from .utils import should_skip_tracing
 
@@ -105,16 +107,32 @@ class OpenTelemetryExtension(SchemaExtension):
         return self._arg_filter(deepcopy(args), info)
 
     def convert_dict_to_allowed_types(self, value: dict) -> str:
-        return (
-            "{"
-            + ", ".join(
-                f"{k}: {self.convert_to_allowed_types(v)}" for k, v in value.items()
-            )
-            + "}"
-        )
+        # Use a list comprehension with local variables for better performance
+        conv = self.convert_to_allowed_types
+        items = value.items()
+        # Preallocate list size
+        n = len(value)
+        result = [""] * n
+        for i, (k, v) in enumerate(items):
+            result[i] = f"{k}: {conv(v)}"
+        return "{" + ", ".join(result) + "}"
 
     def convert_to_allowed_types(self, value: Any) -> Any:
-        # Put these in decreasing order of use-cases to exit as soon as possible
+        # Fast type checks for most common cases
+        t = type(value)
+        if t in (bool, str, bytes, int, float):
+            return value
+        if t in (list, tuple, range):
+            return self.convert_list_or_tuple_to_allowed_types(value)
+        if t is dict:
+            return self.convert_dict_to_allowed_types(value)
+        if t in (set, frozenset):
+            return self.convert_set_to_allowed_types(value)
+        if t is complex:
+            return str(value)  # Convert complex numbers to strings
+        if t in (bytearray, memoryview):
+            return bytes(value)  # Convert bytearray and memoryview to bytes
+        # Fallback for other objects and subclasses
         if isinstance(value, (bool, str, bytes, int, float)):
             return value
         if isinstance(value, (list, tuple, range)):
@@ -124,18 +142,22 @@ class OpenTelemetryExtension(SchemaExtension):
         if isinstance(value, (set, frozenset)):
             return self.convert_set_to_allowed_types(value)
         if isinstance(value, complex):
-            return str(value)  # Convert complex numbers to strings
+            return str(value)
         if isinstance(value, (bytearray, memoryview)):
-            return bytes(value)  # Convert bytearray and memoryview to bytes
+            return bytes(value)
         return str(value)
 
     def convert_set_to_allowed_types(self, value: Union[set, frozenset]) -> str:
-        return (
-            "{" + ", ".join(str(self.convert_to_allowed_types(x)) for x in value) + "}"
-        )
+        # Use list comprehension to prevent repeated lookups
+        conv = self.convert_to_allowed_types
+        result = [str(conv(x)) for x in value]
+        return "{" + ", ".join(result) + "}"
 
     def convert_list_or_tuple_to_allowed_types(self, value: Iterable) -> str:
-        return ", ".join(map(str, map(self.convert_to_allowed_types, value)))
+        # Convert to list for performance, minimize attribute lookups
+        conv = self.convert_to_allowed_types
+        result = [str(conv(v)) for v in value]
+        return ", ".join(result)
 
     def add_tags(self, span: Span, info: GraphQLResolveInfo, kwargs: Any) -> None:
         graphql_path = ".".join(map(str, get_path_from_info(info)))
