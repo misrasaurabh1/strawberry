@@ -4,21 +4,10 @@ import sys
 import typing
 from collections.abc import AsyncGenerator
 from functools import lru_cache
-from typing import (  # type: ignore
-    Annotated,
-    Any,
-    ClassVar,
-    ForwardRef,
-    Generic,
-    Optional,
-    TypeVar,
-    Union,
-    _eval_type,
-    _GenericAlias,
-    _SpecialForm,
-    cast,
-    overload,
-)
+from typing import (Annotated, Any, ClassVar, ForwardRef,  # type: ignore
+                    Generic, Optional, TypeVar, Union, _eval_type,
+                    _GenericAlias, _SpecialForm, cast, overload)
+
 from typing_extensions import TypeGuard, get_args, get_origin
 
 
@@ -173,9 +162,14 @@ def is_classvar(cls: type, annotation: Union[ForwardRef, str]) -> bool:
 
 def type_has_annotation(type_: object, annotation: type) -> bool:
     """Returns True if the type_ has been annotated with annotation."""
-    if get_origin(type_) is Annotated:
-        return any(isinstance(argument, annotation) for argument in get_args(type_))
+    # Fast path: return early if not an Annotated type
+    if get_origin(type_) is not Annotated:
+        return False
 
+    # Use a for loop for early exit as soon as a matching annotation is found
+    for argument in get_args(type_):
+        if isinstance(argument, annotation):
+            return True
     return False
 
 
