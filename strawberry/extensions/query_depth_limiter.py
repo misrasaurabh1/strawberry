@@ -289,15 +289,17 @@ def determine_depth(
 
 
 def is_ignored(node: FieldNode, ignore: Optional[list[IgnoreType]] = None) -> bool:
-    if ignore is None:
+    # Fast path: nothing to ignore.
+    if not ignore:
         return False
 
+    field_name = node.name.value
     for rule in ignore:
-        field_name = node.name.value
-        if isinstance(rule, str):
+        rule_type = type(rule)
+        if rule_type is str:
             if field_name == rule:
                 return True
-        elif isinstance(rule, re.Pattern):
+        elif rule_type is re.Pattern:
             if rule.match(field_name):
                 return True
         elif callable(rule):
@@ -305,7 +307,6 @@ def is_ignored(node: FieldNode, ignore: Optional[list[IgnoreType]] = None) -> bo
                 return True
         else:
             raise TypeError(f"Invalid ignore option: {rule}")
-
     return False
 
 
