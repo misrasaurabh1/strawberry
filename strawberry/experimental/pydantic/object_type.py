@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import dataclasses
 import sys
 import warnings
@@ -42,14 +43,16 @@ if TYPE_CHECKING:
 
 
 def get_type_for_field(field: CompatModelField, is_input: bool, compat: PydanticCompat):  # noqa: ANN201
+    # Use field vars directly for best speed
     outer_type = field.outer_type_
 
     replaced_type = replace_types_recursively(outer_type, is_input, compat=compat)
 
-    if field.is_v1:
+    # Move is_v1 check before usage, as in original
+    if getattr(field, "is_v1", False):
         # only pydantic v1 has this Optional logic
-        should_add_optional: bool = field.allow_none
-        if should_add_optional:
+        if getattr(field, "allow_none", False):
+            # Optional[] is a generic, cheap to construct if needed
             return Optional[replaced_type]
 
     return replaced_type
