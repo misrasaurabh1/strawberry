@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 from uuid import UUID
 
 import pydantic
+import pydantic_core
 from pydantic import BaseModel
 from pydantic.version import VERSION as PYDANTIC_VERSION
 
@@ -103,22 +104,22 @@ ATTR_TO_TYPE_MAP_Pydantic_Core_V2 = {
 
 
 def get_fields_map_for_v2() -> dict[Any, Any]:
-    import pydantic_core
+    # Localize module references for faster access in comprehensions
+    _pydantic = pydantic
+    _core = pydantic_core
 
-    fields_map = {
-        getattr(pydantic, field_name): type
-        for field_name, type in ATTR_TO_TYPE_MAP_Pydantic_V2.items()
-        if hasattr(pydantic, field_name)
-    }
-    fields_map.update(
-        {
-            getattr(pydantic_core, field_name): type
-            for field_name, type in ATTR_TO_TYPE_MAP_Pydantic_Core_V2.items()
-            if hasattr(pydantic_core, field_name)
-        }
-    )
+    d = {}
+    for field_name, typ in ATTR_TO_TYPE_MAP_Pydantic_V2.items():
+        attr = getattr(_pydantic, field_name, None)
+        if attr is not None:
+            d[attr] = typ
 
-    return fields_map
+    for field_name, typ in ATTR_TO_TYPE_MAP_Pydantic_Core_V2.items():
+        attr = getattr(_core, field_name, None)
+        if attr is not None:
+            d[attr] = typ
+
+    return d
 
 
 class PydanticV2Compat:
