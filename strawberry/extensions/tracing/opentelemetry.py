@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Generator, Iterable
 from copy import deepcopy
 from inspect import isawaitable
 from typing import (
@@ -10,11 +11,13 @@ from typing import (
     Union,
 )
 
+from graphql import GraphQLResolveInfo
 from opentelemetry import trace
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import Span, SpanKind, Tracer
 
 from strawberry.extensions import LifecycleStep, SchemaExtension
 from strawberry.extensions.utils import get_path_from_info
+from strawberry.types.execution import ExecutionContext
 
 from .utils import should_skip_tracing
 
@@ -135,7 +138,8 @@ class OpenTelemetryExtension(SchemaExtension):
         )
 
     def convert_list_or_tuple_to_allowed_types(self, value: Iterable) -> str:
-        return ", ".join(map(str, map(self.convert_to_allowed_types, value)))
+        # For compatibility, can fall back to same efficient call
+        return self._convert_list_or_tuple_to_allowed_types_fast(value)
 
     def add_tags(self, span: Span, info: GraphQLResolveInfo, kwargs: Any) -> None:
         graphql_path = ".".join(map(str, get_path_from_info(info)))
@@ -180,6 +184,12 @@ class OpenTelemetryExtension(SchemaExtension):
                 result = await result
 
             return result
+
+    def _convert_list_or_tuple_to_allowed_types_fast(self, value: Iterable) -> str:
+        # Inline as tight a loop as possible
+        # Uses local variable lookups, avoids extra map(str, ...)
+        ctat = self.convert_to_allowed_types
+        return ", ".join([str(ctat(x)) for x in value])
 
 
 class OpenTelemetryExtensionSync(OpenTelemetryExtension):
