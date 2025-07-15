@@ -3,18 +3,11 @@ from __future__ import annotations
 import dataclasses
 from abc import ABC, abstractmethod
 from asyncio import create_task, gather, get_event_loop
+from asyncio.events import AbstractEventLoop
 from asyncio.futures import Future
+from collections.abc import Awaitable, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Generic,
-    Optional,
-    TypeVar,
-    Union,
-    overload,
-)
+from typing import TYPE_CHECKING, Any, Callable, Generic, Optional, TypeVar, Union
 
 from .exceptions import WrongNumberOfResultsReturned
 
@@ -89,29 +82,47 @@ class DataLoader(Generic[K, T]):
     cache: bool = False
     cache_map: AbstractCache[K, T]
 
-    @overload
     def __init__(
         self,
-        # any BaseException is rethrown in 'load', so should be excluded from the T type
         load_fn: Callable[[list[K]], Awaitable[Sequence[Union[T, BaseException]]]],
         max_batch_size: Optional[int] = None,
         cache: bool = True,
         loop: Optional[AbstractEventLoop] = None,
         cache_map: Optional[AbstractCache[K, T]] = None,
         cache_key_fn: Optional[Callable[[K], Hashable]] = None,
-    ) -> None: ...
+    ):
+        self.load_fn = load_fn
+        self.max_batch_size = max_batch_size
 
-    # fallback if load_fn is untyped and there's no other info for inference
-    @overload
+        self._loop = loop
+
+        self.cache = cache
+
+        if self.cache:
+            self.cache_map = (
+                DefaultCache(cache_key_fn) if cache_map is None else cache_map
+            )
+
     def __init__(
-        self: DataLoader[K, Any],
-        load_fn: Callable[[list[K]], Awaitable[list[Any]]],
+        self,
+        load_fn: Callable[[list[K]], Awaitable[Sequence[Union[T, BaseException]]]],
         max_batch_size: Optional[int] = None,
         cache: bool = True,
         loop: Optional[AbstractEventLoop] = None,
         cache_map: Optional[AbstractCache[K, T]] = None,
         cache_key_fn: Optional[Callable[[K], Hashable]] = None,
-    ) -> None: ...
+    ):
+        self.load_fn = load_fn
+        self.max_batch_size = max_batch_size
+
+        self._loop = loop
+
+        self.cache = cache
+
+        if self.cache:
+            self.cache_map = (
+                DefaultCache(cache_key_fn) if cache_map is None else cache_map
+            )
 
     def __init__(
         self,
@@ -209,14 +220,23 @@ def should_create_new_batch(loader: DataLoader, batch: Batch) -> bool:
 
 
 def get_current_batch(loader: DataLoader) -> Batch:
-    if loader.batch and not should_create_new_batch(loader, loader.batch):
-        return loader.batch
+    # Retrieve the batch attribute once for efficiency
+    batch = loader.batch
+    max_batch_size = loader.max_batch_size
 
-    loader.batch = Batch()
+    # Inline the check from should_create_new_batch (to avoid extra function call)
+    if batch and not (
+        batch.dispatched or (max_batch_size and len(batch) >= max_batch_size)
+    ):
+        return batch
 
-    dispatch(loader, loader.batch)
+    new_batch = Batch()
+    loader.batch = new_batch
 
-    return loader.batch
+    # Directly call dispatch without indirection, no extra-logic needed
+    loader.loop.call_soon(create_task, dispatch_batch(loader, new_batch))
+
+    return new_batch
 
 
 def dispatch(loader: DataLoader, batch: Batch) -> None:
