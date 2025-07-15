@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Coroutine, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, Union
 from typing_extensions import Literal, TypedDict
@@ -43,7 +44,9 @@ class BaseGraphQLTestClient(ABC):
         files: Optional[dict[str, object]] = None,
         assert_no_errors: Optional[bool] = True,
     ) -> Union[Coroutine[Any, Any, Response], Response]:
-        body = self._build_body(query, variables, files)
+        # Use local for the method to avoid attribute lookups in a hotspot
+        _build_body = self._build_body
+        body = _build_body(query, variables, files)
 
         resp = self.request(body, headers, files)
         data = self._decode(resp, type="multipart" if files else "json")
@@ -54,6 +57,7 @@ class BaseGraphQLTestClient(ABC):
             extensions=data.get("extensions"),
         )
 
+        # This warning will rarely execute, fast path no-op
         if asserts_errors is not None:
             warnings.warn(
                 "The `asserts_errors` argument has been renamed to `assert_no_errors`",
@@ -61,11 +65,9 @@ class BaseGraphQLTestClient(ABC):
                 stacklevel=2,
             )
 
-        assert_no_errors = (
-            assert_no_errors if asserts_errors is None else asserts_errors
-        )
+        no_errors = assert_no_errors if asserts_errors is None else asserts_errors
 
-        if assert_no_errors:
+        if no_errors:
             assert response.errors is None
 
         return response
@@ -85,22 +87,23 @@ class BaseGraphQLTestClient(ABC):
         variables: Optional[dict[str, Mapping]] = None,
         files: Optional[dict[str, object]] = None,
     ) -> dict[str, object]:
-        body: dict[str, object] = {"query": query}
+        # Fast path for no files
+        if not files:
+            if variables:
+                return {"query": query, "variables": variables}
+            return {"query": query}
 
-        if variables:
-            body["variables"] = variables
-
-        if files:
-            assert variables is not None
-            assert files is not None
-            file_map = BaseGraphQLTestClient._build_multipart_file_map(variables, files)
-
-            body = {
-                "operations": json.dumps(body),
-                "map": json.dumps(file_map),
-                **files,
-            }
-
+        # Slow multipart path
+        assert variables is not None
+        assert files is not None
+        file_map = BaseGraphQLTestClient._build_multipart_file_map_optimized(
+            variables, files
+        )
+        body = {
+            "operations": json.dumps({"query": query, "variables": variables}),
+            "map": json.dumps(file_map),
+            **files,
+        }
         return body
 
     @staticmethod
@@ -191,9 +194,44 @@ class BaseGraphQLTestClient(ABC):
         return {k: v for k, v in map.items() if k in files}
 
     def _decode(self, response: Any, type: Literal["multipart", "json"]) -> Any:
-        if type == "multipart":
-            return json.loads(response.content.decode())
-        return response.json()
+        # Fast branch first
+        if type != "multipart":
+            return response.json()
+        return json.loads(response.content.decode())
+
+    @staticmethod
+    def _build_multipart_file_map_optimized(
+        variables: dict[str, Mapping], files: dict[str, object]
+    ) -> dict[str, list[str]]:
+        # Inline helper function to recursively map variable structure to flat file keys
+        def walk(prefix, obj, files_iter, file_keys, mapping):
+            if isinstance(obj, dict):
+                # Folder: descend into the first (and only) subkey, append path
+                for k, v in obj.items():
+                    walk(f"{prefix}.{k}", v, files_iter, file_keys, mapping)
+                return
+            if isinstance(obj, list):
+                # List of files: enumerate all, get a file key for each
+                for idx, _ in enumerate(obj):
+                    key = next(files_iter)
+                    mapping.setdefault(key, []).append(f"{prefix}.{idx}")
+                return
+            # Single file: match by key in files
+            # In the common case the key is the last part of prefix
+            key = file_keys.get(prefix.split(".")[-1])
+            if key:
+                mapping.setdefault(key, []).append(f"{prefix}")
+            return
+
+        # We use an iterator over the files dictionary keys
+        mapping = {}
+        file_keys = {k: k for k in files}
+        files_iter = iter(files)
+        for key, values in variables.items():
+            walk(f"variables.{key}", values, files_iter, file_keys, mapping)
+
+        # Remove any mapped keys not in files
+        return {k: v for k, v in mapping.items() if k in files}
 
 
 __all__ = ["BaseGraphQLTestClient", "Body", "Response"]
