@@ -26,14 +26,14 @@ class BaseView(Generic[Request]):
     multipart_uploads_enabled: bool = False
 
     def should_render_graphql_ide(self, request: BaseRequestProtocol) -> bool:
-        return (
-            request.method == "GET"
-            and request.query_params.get("query") is None
-            and any(
-                supported_header in request.headers.get("accept", "")
-                for supported_header in ("text/html", "*/*")
-            )
-        )
+        if request.method != "GET":
+            return False
+        if request.query_params.get("query") is not None:
+            return False
+
+        accept_header = request.headers.get("accept", "")
+        # Optimized: Single retrieval and check for presence of either "text/html" or "*/*"
+        return "text/html" in accept_header or "*/*" in accept_header
 
     def is_request_allowed(self, request: BaseRequestProtocol) -> bool:
         return request.method in ("GET", "POST")
