@@ -5,13 +5,16 @@ from typing_extensions import Protocol
 
 from strawberry.directive import StrawberryDirective
 from strawberry.schema_directive import StrawberrySchemaDirective
+from strawberry.types.arguments import StrawberryArgument
 from strawberry.types.base import (
     StrawberryList,
     StrawberryObjectDefinition,
     StrawberryOptional,
+    StrawberryType,
     has_object_definition,
 )
 from strawberry.types.enum import EnumDefinition, EnumValue
+from strawberry.types.field import StrawberryField
 from strawberry.types.lazy_type import LazyType
 from strawberry.types.scalar import ScalarDefinition
 from strawberry.types.union import StrawberryUnion
@@ -99,7 +102,17 @@ class NameConverter:
         return scalar.name
 
     def from_field(self, field: StrawberryField) -> str:
-        return self.get_graphql_name(field)
+        # Fast path: return existing GraphQL name or compute it
+        gql_name = field.graphql_name
+        if gql_name is not None:
+            return gql_name
+
+        python_name = field.python_name
+        assert python_name  # preserve assert
+        # Inline apply_naming_config for speed
+        if self.auto_camel_case:
+            return to_camel_case(python_name)
+        return python_name
 
     def from_union(self, union: StrawberryUnion) -> str:
         if union.graphql_name is not None:
