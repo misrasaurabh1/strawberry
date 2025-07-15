@@ -36,24 +36,19 @@ def _import_plugin(plugin: str) -> Optional[type[QueryCodegenPlugin]]:
 
     if symbol_name:
         obj = getattr(module, symbol_name)
-
         assert _is_codegen_plugin(obj)
         return obj
 
-    symbols = {
-        key: value for key, value in module.__dict__.items() if not key.startswith("__")
-    }
+    module_dict = module.__dict__
+    all_set = set(module_dict["__all__"]) if "__all__" in module_dict else None
 
-    if "__all__" in module.__dict__:
-        symbols = {
-            name: symbol
-            for name, symbol in symbols.items()
-            if name in module.__dict__["__all__"]
-        }
-
-    for obj in symbols.values():
-        if _is_codegen_plugin(obj):
-            return obj
+    for key, value in module_dict.items():
+        if key.startswith("__"):
+            continue
+        if all_set is not None and key not in all_set:
+            continue
+        if _is_codegen_plugin(value):
+            return value
 
     return None
 
