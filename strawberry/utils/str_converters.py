@@ -14,7 +14,23 @@ TO_KEBAB_CASE_RE = re.compile("((?<=[a-z0-9])[A-Z]|(?!^)[A-Z](?=[a-z]))")
 
 
 def to_kebab_case(name: str) -> str:
-    return TO_KEBAB_CASE_RE.sub(r"-\1", name).lower()
+    # Fast path for already lowercase or empty
+    if not name or name.islower():
+        return name
+
+    chars = []
+    prev = ""
+    for i, c in enumerate(name):
+        if c.isupper():
+            if i > 0 and (prev.islower() or prev.isdigit()):
+                chars.append("-")
+            elif i > 0 and (i + 1 < len(name)) and name[i + 1].islower():
+                chars.append("-")
+            chars.append(c.lower())
+        else:
+            chars.append(c)
+        prev = c
+    return "".join(chars)
 
 
 def capitalize_first(name: str) -> str:
