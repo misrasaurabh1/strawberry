@@ -3,12 +3,22 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable
 
+from graphql import GraphQLResolveInfo
+
+from strawberry.types import ExecutionContext
 from strawberry.utils.await_maybe import AsyncIteratorOrIterator, AwaitableOrValue
 
 if TYPE_CHECKING:
     from graphql import GraphQLResolveInfo
 
     from strawberry.types import ExecutionContext
+
+    HOOK_METHODS: set[str] = {
+        SchemaExtension.on_operation.__name__,
+        SchemaExtension.on_validate.__name__,
+        SchemaExtension.on_parse.__name__,
+        SchemaExtension.on_execute.__name__,
+    }
 
 
 class LifecycleStep(Enum):
@@ -66,7 +76,8 @@ class SchemaExtension:
     @classmethod
     def _implements_resolve(cls) -> bool:
         """Whether the extension implements the resolve method."""
-        return cls.resolve is not SchemaExtension.resolve
+        # Use fast identity comparison with the base implementation
+        return cls.resolve is not _SCHEMA_EXTENSION_RESOLVE
 
 
 Hook = Callable[[SchemaExtension], AsyncIteratorOrIterator[None]]
@@ -79,3 +90,9 @@ HOOK_METHODS: set[str] = {
 }
 
 __all__ = ["HOOK_METHODS", "Hook", "LifecycleStep", "SchemaExtension"]
+
+_SCHEMA_EXTENSION_RESOLVE = (
+    SchemaExtension.resolve
+    if "SchemaExtension" in globals()
+    else _SCHEMA_EXTENSION_RESOLVE
+)
