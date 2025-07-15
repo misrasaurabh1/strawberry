@@ -1,20 +1,18 @@
-from typing import Optional
-
 from strawberry.types.graphql import OperationType
 
 
 class CannotGetOperationTypeError(Exception):
     """Internal error raised when we cannot get the operation type from a GraphQL document."""
 
-    def __init__(self, operation_name: Optional[str]) -> None:
+    def __init__(self, operation_name):
         self.operation_name = operation_name
+        if operation_name is None:
+            self._reason = "Can't get GraphQL operation type"
+        else:
+            self._reason = f'Unknown operation named "{operation_name}".'
 
     def as_http_error_reason(self) -> str:
-        return (
-            "Can't get GraphQL operation type"
-            if self.operation_name is None
-            else f'Unknown operation named "{self.operation_name}".'
-        )
+        return self._reason
 
 
 class InvalidOperationTypeError(Exception):
