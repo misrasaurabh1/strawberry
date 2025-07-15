@@ -1,13 +1,19 @@
+from __future__ import annotations
+
 import re
 
 
 # Adapted from this response in Stackoverflow
 # http://stackoverflow.com/a/19053800/1072990
 def to_camel_case(snake_str: str) -> str:
+    if "_" not in snake_str:
+        return snake_str
     components = snake_str.split("_")
-    # We capitalize the first letter of each component except the first one
-    # with the 'capitalize' method and join them together.
-    return components[0] + "".join(x.capitalize() if x else "_" for x in components[1:])
+    # Capitalize components after the first, leave '_' if the component is empty (consecutive '_')
+    return "".join(
+        [components[0]]
+        + [comp.capitalize() if comp else "_" for comp in components[1:]]
+    )
 
 
 TO_KEBAB_CASE_RE = re.compile("((?<=[a-z0-9])[A-Z]|(?!^)[A-Z](?=[a-z]))")
