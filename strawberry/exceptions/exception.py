@@ -4,6 +4,10 @@ from abc import ABC, abstractmethod
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional
 
+from rich.console import Group, RenderableType
+
+from strawberry.exceptions.exception_source import ExceptionSource
+from strawberry.exceptions.syntax import Syntax
 from strawberry.utils.str_converters import to_kebab_case
 
 if TYPE_CHECKING:
@@ -86,37 +90,31 @@ class StrawberryException(Exception, ABC):
     def _get_error_inline(
         self, exception_source: ExceptionSource, message: str
     ) -> RenderableType:
+        # Use only relevant fields and avoid duplicate assignment of error_line
         source_file = exception_source.path
         relative_path = exception_source.path_relative_to_cwd
         error_line = exception_source.error_line
-
-        from rich.console import Group
-
-        from .syntax import Syntax
+        error_column = exception_source.error_column
+        error_column_end = exception_source.error_column_end
+        code = exception_source.code
+        start_line = exception_source.start_line
+        end_line = exception_source.end_line
 
         path = f"[white]     @ [link=file://{source_file}]{relative_path}:{error_line}"
 
-        prefix = " " * exception_source.error_column
-        caret = "^" * (
-            exception_source.error_column_end - exception_source.error_column
-        )
-
-        message = f"{prefix}[bold]{caret}[/] {message}"
-
-        error_line = exception_source.error_line
-        line_annotations = {error_line: message}
+        prefix = " " * error_column
+        caret = "^" * (error_column_end - error_column)
+        annotation = f"{prefix}[bold]{caret}[/] {message}"
+        line_annotations = {error_line: annotation}
 
         return Group(
             path,
             "",
             Syntax(
-                code=exception_source.code,
+                code=code,
                 highlight_lines={error_line},
-                line_offset=exception_source.start_line - 1,
+                line_offset=start_line - 1,
                 line_annotations=line_annotations,
-                line_range=(
-                    exception_source.start_line - 1,
-                    exception_source.end_line,
-                ),
+                line_range=(start_line - 1, end_line),
             ),
         )
