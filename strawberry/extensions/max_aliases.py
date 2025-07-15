@@ -66,17 +66,29 @@ def create_validator(max_alias_count: int) -> type[ValidationRule]:
 def count_fields_with_alias(
     selection_set_owner: Union[ExecutableDefinitionNode, FieldNode, InlineFragmentNode],
 ) -> int:
-    if selection_set_owner.selection_set is None:
+    # Fast exit if no selections
+    selection_set = selection_set_owner.selection_set
+    if selection_set is None:
         return 0
 
+    # Use local variable lookups for slight speedup
+    selections = selection_set.selections
     result = 0
+    FieldNodeType = FieldNode
+    InlineFragmentNodeType = InlineFragmentNode
 
-    for selection in selection_set_owner.selection_set.selections:
-        if isinstance(selection, FieldNode) and selection.alias:
+    for selection in selections:
+        selection_type = type(selection)
+        is_field = selection_type is FieldNodeType
+
+        # Only check for alias if type is FieldNode
+        if is_field and selection.alias:
             result += 1
-        if (
-            isinstance(selection, (FieldNode, InlineFragmentNode))
-            and selection.selection_set
+
+        # Only recurse if selection_set exists and type is FieldNode or InlineFragmentNode
+        # (using type(...) is ... instead of isinstance(...) is faster with only direct types)
+        if (is_field or selection_type is InlineFragmentNodeType) and getattr(
+            selection, "selection_set", None
         ):
             result += count_fields_with_alias(selection)
 
