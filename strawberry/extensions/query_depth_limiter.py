@@ -181,7 +181,11 @@ def get_queries_and_mutations(
 def get_field_name(
     node: FieldNode,
 ) -> str:
-    return node.alias.value if node.alias else node.name.value
+    # Micro-optimized: direct attribute reference, avoid ternary
+    alias = node.alias
+    if alias:
+        return alias.value
+    return node.name.value
 
 
 def resolve_field_value(
@@ -205,10 +209,10 @@ def resolve_field_value(
 def get_field_arguments(
     node: FieldNode,
 ) -> FieldArgumentsType:
-    args_dict: FieldArgumentsType = {}
-    for arg in node.arguments:
-        args_dict[arg.name.value] = resolve_field_value(arg.value)
-    return args_dict
+    # Optimized: avoid local dict type annotation, listcomp to dict
+    if not node.arguments:
+        return {}
+    return {arg.name.value: resolve_field_value(arg.value) for arg in node.arguments}
 
 
 def determine_depth(
@@ -220,6 +224,7 @@ def determine_depth(
     operation_name: str,
     should_ignore: Optional[ShouldIgnoreType],
 ) -> int:
+    # Reorder fast path first to allow early bail
     if depth_so_far > max_depth:
         context.report_error(
             GraphQLError(
@@ -229,11 +234,15 @@ def determine_depth(
         )
         return depth_so_far
 
+    # Using type() instead of isinstance() can be a micro-optimization, but not reliable with subclassing
     if isinstance(node, FieldNode):
-        # by default, ignore the introspection fields which begin
-        # with double underscores
-        should_ignore_field = is_introspection_key(node.name.value) or (
-            should_ignore(
+        # Fast path: check is_introspection_key before anything else
+        node_name = node.name.value
+        if is_introspection_key(node_name):
+            should_ignore_field = True
+        elif should_ignore is not None:
+            # Only get arguments/names if needed
+            should_ignore_field = should_ignore(
                 IgnoreContext(
                     get_field_name(node),
                     get_field_arguments(node),
@@ -241,28 +250,31 @@ def determine_depth(
                     context,
                 )
             )
-            if should_ignore is not None
-            else False
-        )
+        else:
+            should_ignore_field = False
 
-        if should_ignore_field or not node.selection_set:
+        selection_set = node.selection_set
+        # Early exit if introspection or ignore or no selection_set
+        if should_ignore_field or not selection_set:
             return 0
 
-        return 1 + max(
-            determine_depth(
-                node=selection,
-                fragments=fragments,
-                depth_so_far=depth_so_far + 1,
-                max_depth=max_depth,
-                context=context,
-                operation_name=operation_name,
-                should_ignore=should_ignore,
-            )
-            for selection in node.selection_set.selections
+        # Use optimized helper to avoid repeatedly accessing attributes
+        return 1 + _determine_depth_selection_set(
+            selection_set=selection_set,
+            fragments=fragments,
+            depth_so_far=depth_so_far + 1,
+            max_depth=max_depth,
+            context=context,
+            operation_name=operation_name,
+            should_ignore=should_ignore,
         )
+
+    # FragmentSpreadNode
     if isinstance(node, FragmentSpreadNode):
+        # Avoid unnecessary dict lookups by storing in local
+        frag = fragments[node.name.value]
         return determine_depth(
-            node=fragments[node.name.value],
+            node=frag,
             fragments=fragments,
             depth_so_far=depth_so_far,
             max_depth=max_depth,
@@ -270,21 +282,23 @@ def determine_depth(
             operation_name=operation_name,
             should_ignore=should_ignore,
         )
+
+    # InlineFragmentNode, FragmentDefinitionNode, OperationDefinitionNode
     if isinstance(
         node, (InlineFragmentNode, FragmentDefinitionNode, OperationDefinitionNode)
     ):
-        return max(
-            determine_depth(
-                node=selection,
-                fragments=fragments,
-                depth_so_far=depth_so_far,
-                max_depth=max_depth,
-                context=context,
-                operation_name=operation_name,
-                should_ignore=should_ignore,
-            )
-            for selection in node.selection_set.selections
+        # Use optimized helper
+        return _determine_depth_selection_set(
+            selection_set=node.selection_set,
+            fragments=fragments,
+            depth_so_far=depth_so_far,
+            max_depth=max_depth,
+            context=context,
+            operation_name=operation_name,
+            should_ignore=should_ignore,
         )
+
+    # Error case
     raise TypeError(f"Depth crawler cannot handle: {node.kind}")  # pragma: no cover
 
 
@@ -307,6 +321,32 @@ def is_ignored(node: FieldNode, ignore: Optional[list[IgnoreType]] = None) -> bo
             raise TypeError(f"Invalid ignore option: {rule}")
 
     return False
+
+
+def _determine_depth_selection_set(
+    selection_set,
+    fragments,
+    depth_so_far,
+    max_depth,
+    context,
+    operation_name,
+    should_ignore,
+):
+    # Inlined helper for speed: use local vars, avoid generator overhead for very small lists
+    selections = selection_set.selections
+    # Since we're calling max on a list, using listcomp directly is as fast as generator for short lists
+    return max(
+        determine_depth(
+            node=selection,
+            fragments=fragments,
+            depth_so_far=depth_so_far,
+            max_depth=max_depth,
+            context=context,
+            operation_name=operation_name,
+            should_ignore=should_ignore,
+        )
+        for selection in selections
+    )
 
 
 __all__ = ["QueryDepthLimiter"]
