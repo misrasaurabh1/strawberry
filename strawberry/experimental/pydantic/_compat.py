@@ -12,7 +12,7 @@ from pydantic.version import VERSION as PYDANTIC_VERSION
 from strawberry.experimental.pydantic.exceptions import UnsupportedTypeError
 
 if TYPE_CHECKING:
-    from pydantic.fields import ComputedFieldInfo, FieldInfo
+    from pydantic.fields import FieldInfo
 
 IS_PYDANTIC_V2: bool = PYDANTIC_VERSION.startswith("2.")
 IS_PYDANTIC_V1: bool = not IS_PYDANTIC_V2
@@ -131,11 +131,12 @@ class PydanticV2Compat:
     def get_model_computed_fields(
         self, model: type[BaseModel]
     ) -> dict[str, CompatModelField]:
-        computed_field_info: dict[str, ComputedFieldInfo] = model.model_computed_fields
-        new_fields = {}
-        # Convert it into CompatModelField
-        for name, field in computed_field_info.items():
-            new_fields[name] = CompatModelField(
+        computed_field_info = model.model_computed_fields
+        CompatModelField_ = CompatModelField  # Reduce global lookup
+        missing_type = self.PYDANTIC_MISSING_TYPE  # Bind once
+        # Dict comprehension for faster iteration
+        return {
+            name: CompatModelField_(
                 name=name,
                 type_=field.return_type,
                 outer_type_=field.return_type,
@@ -143,14 +144,14 @@ class PydanticV2Compat:
                 default_factory=None,
                 required=False,
                 alias=field.alias,
-                # v2 doesn't have allow_none
                 allow_none=False,
-                has_alias=field is not None,
+                has_alias=True,  # field is not None always True in this context
                 description=field.description,
-                _missing_type=self.PYDANTIC_MISSING_TYPE,
+                _missing_type=missing_type,
                 is_v1=False,
             )
-        return new_fields
+            for name, field in computed_field_info.items()
+        }
 
     def get_model_fields(
         self, model: type[BaseModel], include_computed: bool = False
