@@ -5,9 +5,11 @@ from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from chalice.app import Request, Response
 from strawberry.http.exceptions import HTTPException
+from strawberry.http.ides import GraphQL_IDE
 from strawberry.http.sync_base_view import SyncBaseHTTPView, SyncHTTPRequestAdapter
 from strawberry.http.temporal_response import TemporalResponse
 from strawberry.http.typevars import Context, RootValue
+from strawberry.schema import BaseSchema
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -76,12 +78,16 @@ class GraphQLView(
         else:
             self.graphql_ide = graphql_ide
 
+        # Precompute and cache the IDE HTML at construction for fast retrieval per-request
+        self._cached_graphql_ide_html = self.graphql_ide_html
+
     def get_root_value(self, request: Request) -> Optional[RootValue]:
         return None
 
     def render_graphql_ide(self, request: Request) -> Response:
+        # Use cached HTML to avoid recomputation on every call
         return Response(
-            self.graphql_ide_html,
+            self._cached_graphql_ide_html,
             headers={"Content-Type": "text/html"},
         )
 
