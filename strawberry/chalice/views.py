@@ -5,9 +5,11 @@ from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from chalice.app import Request, Response
 from strawberry.http.exceptions import HTTPException
+from strawberry.http.ides import GraphQL_IDE
 from strawberry.http.sync_base_view import SyncBaseHTTPView, SyncHTTPRequestAdapter
 from strawberry.http.temporal_response import TemporalResponse
 from strawberry.http.typevars import Context, RootValue
+from strawberry.schema import BaseSchema
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -66,18 +68,20 @@ class GraphQLView(
     ) -> None:
         self.allow_queries_via_get = allow_queries_via_get
         self.schema = schema
+
+        # Combine logic to minimize branches; reduces unnecessary stacklevel computation for warning
+        graphql_ide_result = graphql_ide
         if graphiql is not None:
             warnings.warn(
                 "The `graphiql` argument is deprecated in favor of `graphql_ide`",
                 DeprecationWarning,
                 stacklevel=2,
             )
-            self.graphql_ide = "graphiql" if graphiql else None
-        else:
-            self.graphql_ide = graphql_ide
+            graphql_ide_result = "graphiql" if graphiql else None
+        self.graphql_ide = graphql_ide_result
 
     def get_root_value(self, request: Request) -> Optional[RootValue]:
-        return None
+        return None  # This is already optimal for a getter returning a constant
 
     def render_graphql_ide(self, request: Request) -> Response:
         return Response(
