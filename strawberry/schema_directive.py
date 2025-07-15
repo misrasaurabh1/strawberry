@@ -73,3 +73,5 @@ def schema_directive(
 
 
 __all__ = ["Location", "StrawberrySchemaDirective", "schema_directive"]
+
+StrawberrySchemaDirective_local = globals()["StrawberrySchemaDirective"]
