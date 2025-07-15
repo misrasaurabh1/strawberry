@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Union
 
+from graphql import GraphQLResolveInfo
+
 if TYPE_CHECKING:
     from graphql import GraphQLResolveInfo
 
@@ -16,13 +18,23 @@ def is_introspection_key(key: Union[str, int]) -> bool:
 
 
 def is_introspection_field(info: GraphQLResolveInfo) -> bool:
+    # Inlined is_introspection_key logic for performance
     path = info.path
-
     while path:
-        if is_introspection_key(path.key):
-            return True
+        key = path.key
+        # Avoid function call: directly check for "__"
+        if isinstance(key, str):
+            if key[:2] == "__":
+                return True
+        elif isinstance(key, int):
+            # ints can't start with '__'
+            pass
+        else:
+            # Make sure any other type also converts to str then checks
+            key_str = str(key)
+            if key_str[:2] == "__":
+                return True
         path = path.prev
-
     return False
 
 
