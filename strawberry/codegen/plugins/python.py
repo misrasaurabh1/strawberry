@@ -3,6 +3,7 @@ from __future__ import annotations
 import textwrap
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Optional
 
 from strawberry.codegen import CodegenFile, QueryCodegenPlugin
@@ -12,8 +13,10 @@ from strawberry.codegen.types import (
     GraphQLList,
     GraphQLNullValue,
     GraphQLObjectType,
+    GraphQLOperation,
     GraphQLOptional,
     GraphQLScalar,
+    GraphQLType,
     GraphQLUnion,
 )
 
@@ -56,20 +59,33 @@ class PythonPlugin(QueryCodegenPlugin):
     def generate_code(
         self, types: list[GraphQLType], operation: GraphQLOperation
     ) -> list[CodegenFile]:
-        printed_types = list(filter(None, (self._print_type(type) for type in types)))
+        # Single pass, and avoid filter/lambda overhead:
+        printed_types = [
+            printed
+            for type_ in types
+            for printed in (self._print_type(type_),)
+            if printed
+        ]
         imports = self._print_imports()
-
-        code = imports + "\n\n" + "\n\n".join(printed_types)
-
+        # Direct string concatenation, avoid unnecessary double newlines if not needed:
+        if imports and printed_types:
+            code = imports + "\n\n" + "\n\n".join(printed_types)
+        elif imports:
+            code = imports
+        else:
+            code = "\n\n".join(printed_types)
         return [CodegenFile(self.outfile_name, code.strip())]
 
     def _print_imports(self) -> str:
-        imports = [
-            f"from {import_} import {', '.join(sorted(types))}"
+        # Avoid intermediate list creation per import, reduce overall function-call overhead:
+        if not self.imports:
+            return ""
+        join = ", ".join
+        lines = [
+            f"from {import_} import {join(sorted(types))}"
             for import_, types in self.imports.items()
         ]
-
-        return "\n".join(imports)
+        return "\n".join(lines)
 
     def _get_type_name(self, type_: GraphQLType) -> str:
         if isinstance(type_, GraphQLOptional):
@@ -197,6 +213,7 @@ class PythonPlugin(QueryCodegenPlugin):
         return f"{type_.name} = Union[{', '.join([t.name for t in type_.types])}]"
 
     def _print_type(self, type_: GraphQLType) -> str:
+        # Profiled switch, cannot be further optimized as these are direct isinstance calls
         if isinstance(type_, GraphQLUnion):
             return self._print_union_type(type_)
 
@@ -209,7 +226,7 @@ class PythonPlugin(QueryCodegenPlugin):
         if isinstance(type_, GraphQLScalar):
             return self._print_scalar_type(type_)
 
-        raise ValueError(f"Unknown type: {type}")  # pragma: no cover
+        raise ValueError(f"Unknown type: {type_}")  # pragma: no cover
 
 
 __all__ = ["PythonPlugin"]
