@@ -20,14 +20,11 @@ ProgressType = Union[type[Progress], type[FakeProgress]]
 
 
 def _get_libcst_version() -> tuple[int, int, int]:
-    package_version_str = version("libcst")
-
-    try:
-        major, minor, patch = map(int, package_version_str.split("."))
-    except ValueError:
-        major, minor, patch = (0, 0, 0)
-
-    return major, minor, patch
+    # Use a function attribute as a static cache for speed
+    if not hasattr(_get_libcst_version, "_cached_version"):
+        package_version_str = version("libcst")
+        _get_libcst_version._cached_version = _parse_version_string(package_version_str)
+    return _get_libcst_version._cached_version
 
 
 def _execute_transform_wrap(
@@ -78,3 +75,13 @@ def run_codemod(
             progress.advance(task_id)
 
             yield result
+
+
+# Helper function to parse the version string
+def _parse_version_string(package_version_str: str) -> tuple[int, int, int]:
+    try:
+        # Split only on the first two dots for efficiency
+        major, minor, patch = map(int, package_version_str.split(".", 2))
+    except ValueError:
+        major, minor, patch = (0, 0, 0)
+    return major, minor, patch
