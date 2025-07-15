@@ -5,13 +5,16 @@ from typing_extensions import Protocol
 
 from strawberry.directive import StrawberryDirective
 from strawberry.schema_directive import StrawberrySchemaDirective
+from strawberry.types.arguments import StrawberryArgument
 from strawberry.types.base import (
     StrawberryList,
     StrawberryObjectDefinition,
     StrawberryOptional,
+    StrawberryType,
     has_object_definition,
 )
 from strawberry.types.enum import EnumDefinition, EnumValue
+from strawberry.types.field import StrawberryField
 from strawberry.types.lazy_type import LazyType
 from strawberry.types.scalar import ScalarDefinition
 from strawberry.types.union import StrawberryUnion
@@ -60,7 +63,18 @@ class NameConverter:
         return str(type_)
 
     def from_argument(self, argument: StrawberryArgument) -> str:
-        return self.get_graphql_name(argument)
+        # Inline fast get_graphql_name logic for speed (avoid double call stack)
+        graphql_name = getattr(argument, "graphql_name", None)
+        if graphql_name is not None:
+            return graphql_name
+        python_name = getattr(argument, "python_name", None)
+        # If python_name is ever None, raise as before
+        if not python_name:
+            raise AssertionError("python_name must be set")
+        # Inline apply_naming_config logic, avoiding extra function call
+        if self.auto_camel_case:
+            return to_camel_case(python_name)
+        return python_name
 
     def from_object(self, object_type: StrawberryObjectDefinition) -> str:
         # if concrete_of is not generic, then this is a subclass of an already
