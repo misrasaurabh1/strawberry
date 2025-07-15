@@ -77,10 +77,12 @@ class BaseView(Generic[Request]):
         if content_type != "multipart/mixed":
             return False
 
-        if params.get("boundary") != "graphql":
+        boundary = params.get("boundary")
+        if boundary != "graphql":
             return False
 
-        return params.get("subscriptionspec", "").startswith("1.0")
+        subscriptionspec = params.get("subscriptionspec")
+        return subscriptionspec is not None and subscriptionspec.startswith("1.0")
 
 
 __all__ = ["BaseView"]
