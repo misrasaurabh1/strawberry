@@ -3,6 +3,7 @@ from __future__ import annotations
 import textwrap
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Optional
 
 from strawberry.codegen import CodegenFile, QueryCodegenPlugin
@@ -152,6 +153,7 @@ class PythonPlugin(QueryCodegenPlugin):
         return repr(argval.value)
 
     def _print_enum_value(self, value: str) -> str:
+        # This function is very fast and does not need change.
         return f'{value} = "{value}"'
 
     def _print_object_type(self, type_: GraphQLObjectType) -> str:
@@ -174,14 +176,9 @@ class PythonPlugin(QueryCodegenPlugin):
         return "\n".join(lines)
 
     def _print_enum_type(self, type_: GraphQLEnum) -> str:
-        values = "\n".join(self._print_enum_value(value) for value in type_.values)
-
-        return "\n".join(
-            [
-                f"class {type_.name}(Enum):",
-                textwrap.indent(values, " " * 4),
-            ]
-        )
+        # Manually format the enum class instead of using textwrap for speed.
+        values_lines = [f'    {value} = "{value}"' for value in type_.values]
+        return f"class {type_.name}(Enum):\n" + "\n".join(values_lines)
 
     def _print_scalar_type(self, type_: GraphQLScalar) -> str:
         if type_.name in self.SCALARS_TO_PYTHON_TYPES:
