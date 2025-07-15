@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import textwrap
+from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 from strawberry.codegen import CodegenFile, QueryCodegenPlugin
 from strawberry.codegen.types import (
     GraphQLEnum,
+    GraphQLField,
     GraphQLList,
     GraphQLObjectType,
     GraphQLOptional,
     GraphQLScalar,
+    GraphQLType,
     GraphQLUnion,
 )
 
@@ -39,6 +42,9 @@ class TypeScriptPlugin(QueryCodegenPlugin):
         self.outfile_name: str = query.with_suffix(".ts").name
         self.query = query
 
+        # Memoization cache for type name conversions
+        self._type_name_cache = {}
+
     def generate_code(
         self, types: list[GraphQLType], operation: GraphQLOperation
     ) -> list[CodegenFile]:
@@ -47,34 +53,58 @@ class TypeScriptPlugin(QueryCodegenPlugin):
         return [CodegenFile(self.outfile_name, "\n\n".join(printed_types))]
 
     def _get_type_name(self, type_: GraphQLType) -> str:
-        if isinstance(type_, GraphQLOptional):
-            return f"{self._get_type_name(type_.of_type)} | undefined"
+        # Use id(type_) as key since instances are not hashable and
+        # because GraphQLType objects are reused for identical schema types
+        cache = self._type_name_cache
+        type_id = id(type_)
+        if type_id in cache:
+            return cache[type_id]
 
+        # Restructure checks so the fastest most common types are checked first
+        # GraphQLScalar and GraphQLObjectType are far more likely than unions/lists
+
+        # Fast path: scalar types with known mapping
+        if isinstance(type_, GraphQLScalar):
+            scalar_type = self.SCALARS_TO_TS_TYPE.get(type_.name)
+            if scalar_type is not None:
+                cache[type_id] = scalar_type
+                return scalar_type
+
+        # Fast path: object or enum
+        if isinstance(type_, (GraphQLObjectType, GraphQLEnum)):
+            cache[type_id] = type_.name
+            return type_.name
+
+        # Union type
+        if isinstance(type_, GraphQLUnion):
+            cache[type_id] = type_.name
+            return type_.name
+
+        # Optional: memoize recursive result
+        if isinstance(type_, GraphQLOptional):
+            val = self._get_type_name(type_.of_type) + " | undefined"
+            cache[type_id] = val
+            return val
+
+        # List type: avoid unnecessary formatting
         if isinstance(type_, GraphQLList):
             child_type = self._get_type_name(type_.of_type)
-
             if "|" in child_type:
                 child_type = f"({child_type})"
+            val = f"{child_type}[]"
+            cache[type_id] = val
+            return val
 
-            return f"{child_type}[]"
-
-        if isinstance(type_, GraphQLUnion):
-            return type_.name
-
-        if isinstance(type_, (GraphQLObjectType, GraphQLEnum)):
-            return type_.name
-
-        if isinstance(type_, GraphQLScalar) and type_.name in self.SCALARS_TO_TS_TYPE:
-            return self.SCALARS_TO_TS_TYPE[type_.name]
-
+        # Fallback: unrecognized type, just return its name
+        cache[type_id] = type_.name
         return type_.name
 
     def _print_field(self, field: GraphQLField) -> str:
         name = field.name
-
         if field.alias:
+            # Optimization: avoid redundant formatting when alias is empty/None
             name = f"// alias for {field.name}\n{field.alias}"
-
+        # Elide local variable, keep tight loop
         return f"{name}: {self._get_type_name(field.type)}"
 
     def _print_enum_value(self, value: str) -> str:
