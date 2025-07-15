@@ -260,13 +260,24 @@ ArgumentValue: TypeAlias = Union[str, bool, list["ArgumentValue"]]
 
 
 def _get_argument_value(argument_value: ConstValueNode) -> ArgumentValue:
-    if isinstance(argument_value, StringValueNode):
+    # Fast-path dispatch: type->handler mapping (avoids repeated isinstance chain)
+    typ = type(argument_value)
+    if typ is _StringValueNode:
         return argument_value.value
-    if isinstance(argument_value, EnumValueDefinitionNode):
+    if typ is _EnumValueDefinitionNode:
         return argument_value.name.value
-    if isinstance(argument_value, ListValueNode):
+    if typ is _ListValueNode:
         return [_get_argument_value(arg) for arg in argument_value.values]
-    if isinstance(argument_value, BooleanValueNode):
+    if typ is _BooleanValueNode:
+        return argument_value.value
+    # Fallback to isinstance to preserve logic for subclasses, if any
+    if isinstance(argument_value, _StringValueNode):
+        return argument_value.value
+    if isinstance(argument_value, _EnumValueDefinitionNode):
+        return argument_value.name.value
+    if isinstance(argument_value, _ListValueNode):
+        return [_get_argument_value(arg) for arg in argument_value.values]
+    if isinstance(argument_value, _BooleanValueNode):
         return argument_value.value
     raise NotImplementedError(f"Unknown argument value {argument_value}")
 
@@ -804,3 +815,11 @@ def codegen(schema: str) -> str:
 
 
 __all__ = ["codegen"]
+
+_StringValueNode = StringValueNode
+
+_EnumValueDefinitionNode = EnumValueDefinitionNode
+
+_ListValueNode = ListValueNode
+
+_BooleanValueNode = BooleanValueNode
