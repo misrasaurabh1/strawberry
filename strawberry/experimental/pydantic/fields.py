@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 import builtins
+from types import UnionType as TypingUnionType
 from typing import Annotated, Any, Union
+from typing import GenericAlias as TypingGenericAlias
 
 from pydantic import BaseModel
 
@@ -24,8 +28,6 @@ except ImportError:
     else:
         raise
 
-from typing import GenericAlias as TypingGenericAlias  # type: ignore
-
 
 def replace_pydantic_types(type_: Any, is_input: bool) -> Any:
     if lenient_issubclass(type_, BaseModel):
@@ -44,14 +46,24 @@ def replace_types_recursively(
     replaced_type = replace_pydantic_types(basic_type, is_input)
 
     origin = get_origin(type_)
-
     if not origin or not hasattr(type_, "__args__"):
         return replaced_type
 
-    converted = tuple(
-        replace_types_recursively(t, is_input=is_input, compat=compat)
-        for t in get_args(replaced_type)
-    )
+    # Cache get_args so it's not called multiple times for replaced_type
+    replaced_args = get_args(replaced_type)
+    # Fast check: avoid unnecessary tuple(map) allocations
+    converted = []
+    has_changes = False
+    for i, t in enumerate(replaced_args):
+        rec = replace_types_recursively(t, is_input=is_input, compat=compat)
+        converted.append(rec)
+        if rec is not t:
+            has_changes = True
+    converted = tuple(converted)
+
+    # If no changes, and replaced_type is already built correctly, skip further expensive ops.
+    if not has_changes and replaced_type == type_:
+        return replaced_type
 
     if isinstance(replaced_type, TypingGenericAlias):
         return TypingGenericAlias(origin, converted)
@@ -62,6 +74,7 @@ def replace_types_recursively(
     if origin is Annotated and converted:
         converted = (converted[0],)
 
+    # Only call copy_with if necessary (expensive op)
     replaced_type = replaced_type.copy_with(converted)
 
     if isinstance(replaced_type, StrawberryObjectDefinition):
