@@ -278,18 +278,16 @@ class PydanticV1Compat:
 
 
 class PydanticCompat:
-    def __init__(self, is_v2: bool) -> None:
-        if is_v2:
-            self._compat = PydanticV2Compat()
-        else:
-            self._compat = PydanticV1Compat()  # type: ignore[assignment]
+    def __init__(self, compat) -> None:
+        self._compat = compat
 
     @classmethod
     def from_model(cls, model: type[BaseModel]) -> "PydanticCompat":
         if hasattr(model, "model_fields"):
-            return cls(is_v2=True)
-
-        return cls(is_v2=False)
+            compat = PydanticV2Compat()
+        else:
+            compat = PydanticV1Compat()
+        return cls(compat)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._compat, name)
