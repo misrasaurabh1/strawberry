@@ -5,9 +5,19 @@ import re
 # http://stackoverflow.com/a/19053800/1072990
 def to_camel_case(snake_str: str) -> str:
     components = snake_str.split("_")
-    # We capitalize the first letter of each component except the first one
-    # with the 'capitalize' method and join them together.
-    return components[0] + "".join(x.capitalize() if x else "_" for x in components[1:])
+    if len(components) == 1:
+        return snake_str
+    first = components[0]
+    rest = components[1:]
+    # Pre-allocate list for fast concatenation and avoid generator expression
+    result = [first]
+    capitalize = str.capitalize
+    for x in rest:
+        if x:
+            result.append(capitalize(x))
+        else:
+            result.append("_")
+    return "".join(result)
 
 
 TO_KEBAB_CASE_RE = re.compile("((?<=[a-z0-9])[A-Z]|(?!^)[A-Z](?=[a-z]))")
