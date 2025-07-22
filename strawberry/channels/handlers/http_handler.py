@@ -381,9 +381,6 @@ class SyncGraphQLHTTPConsumer(
         return super().run(request, context, root_value)
 
 
-# Use normal json, but set compact separators for speed
-def _json_dumps(obj):
-    return json.dumps(obj, separators=(",", ":"))
 
 
 __all__ = ["GraphQLHTTPConsumer", "SyncGraphQLHTTPConsumer"]
